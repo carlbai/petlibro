@@ -14,6 +14,7 @@ Additional entities:
 
 | Entity | Source / unit |
 | --- | --- |
+| Total Consumed Today | Sum of measured `MEAL_RECORD.intake`, grams |
 | Food in Bowl | `remainingGrain`, measured grams |
 | Feedable Portions | `maxFeedable`, portions |
 | Grams per Portion | `portionToGramRatio`, g/portion |
@@ -38,6 +39,15 @@ using the integration's existing conversion factors. Food in Bowl is a separate
 scale measurement. Grams per Portion exposes the reported calibration without
 changing those inherited conversions.
 
+Total Consumed Today sums the meal records reported by the feeder, matching the
+app's measured intake rather than estimating consumption from dispensed food
+minus bowl weight. It uses midnight in Home Assistant's configured timezone
+(also sent to the PETLIBRO API), deduplicates overlapping history pages, and
+excludes other event types and other days. The daily total permits corrections
+and reports its reset time for Home Assistant statistics. A complete day with
+no meals reports 0 g; a failed, invalid, or incomplete history fetch reports
+unavailable. History is bounded to ten pages of 25 records per poll.
+
 ## Installation
 
 After this branch is pushed to your fork, add `https://github.com/carlbai/petlibro`
@@ -57,9 +67,11 @@ The device model and camera-free capabilities are documented by
 [PETLIBRO](https://petlibro.com/products/granary-2-series). The additional API
 contracts come from captured traffic on a sibling PLAF205 in
 [upstream PR #274](https://github.com/jjjonesjr33/petlibro/pull/274).
-They have **not yet been verified on a live PLAF105**. The tests use synthetic
-responses based on those documented fields, without contacting a feeder or
-dispensing food.
+Bowl weight, feeding mode, and Smart Refill settings have been read from a live
+PLAF105. A measured meal's top-level `intake` also matched the app's Total
+Consumed value. Mode-changing and dispensing controls have not been exercised
+on the live feeder. The tests use synthetic responses without contacting a
+feeder or dispensing food.
 
 CI runs the device tests, Hassfest, and HACS validation. On forks, it skips HACS's
 repository topics and issue-tracker checks, which are publication metadata for

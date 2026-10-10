@@ -434,6 +434,19 @@ Recent device events.
 
 ### POST /device/workRecord/list
 
+For Granary 2 (PLAF105), records of type `MEAL_RECORD` with event type
+`PET_EATING_RECORD_EVENT` contain a top-level numeric `intake` in grams and
+`recordTime` in epoch milliseconds. The `petsInfo` list and JSON `params` may
+repeat the intake; count the top-level value once per unique record `id`.
+This shape was observed on a live PLAF105 and matched the app's consumption
+reading. The API may return other event types even with a `type` filter.
+
+The Granary 2 daily consumption request scopes `startTime` to local midnight,
+requests pages of 25 records with `type: ["MEAL_RECORD"]`, and moves `endTime`
+backward with an overlapping boundary. A failure, malformed page, stalled
+cursor, or ten-page limit leaves consumption unavailable instead of publishing
+a partial daily sum.
+
 Work/feeding records (past 30 days).
 
 **Request:**

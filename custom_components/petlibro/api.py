@@ -454,6 +454,55 @@ class PetLibroAPI:
             _LOGGER.error(f"Error fetching workRecord for device {device_id}: {e}")
             raise PetLibroAPIError(f"Error fetching workRecord for device {device_id}: {e}")
 
+    async def get_device_meal_records(self, device_id: str, start_time: int, end_time: int) -> list[dict]:
+        """Read a complete time window, overlapping pages to deduplicate meals.
+
+        The service can return other event types despite the requested filter.
+        Never turn a truncated or malformed response into a consumption total.
+        """
+        records_by_id = {}
+        cursor = end_time
+        page_size = 25
+        for _ in range(10):
+            groups = await self.session.request("POST", "/device/workRecord/list", json={
+                "deviceSn": device_id,
+                "startTime": start_time,
+                "endTime": cursor,
+                "size": page_size,
+                "type": ["MEAL_RECORD"],
+            })
+            # PetLibroSession turns an empty data list into {}.
+            if groups == {}:
+                groups = []
+            if not isinstance(groups, list):
+                raise PetLibroAPIError("Invalid meal history response")
+            page = []
+            for group in groups:
+                if not isinstance(group, dict) or not isinstance(group.get("workRecords"), list):
+                    raise PetLibroAPIError("Invalid meal history group")
+                page.extend(group["workRecords"])
+            timestamps = []
+            for record in page:
+                if not isinstance(record, dict):
+                    raise PetLibroAPIError("Invalid meal history record")
+                timestamp = record.get("recordTime")
+                if isinstance(timestamp, bool) or not isinstance(timestamp, int):
+                    raise PetLibroAPIError("Missing meal history timestamp")
+                timestamps.append(timestamp)
+                if record.get("type") != "MEAL_RECORD" or not start_time <= timestamp <= end_time:
+                    continue
+                record_id = record.get("id")
+                if not isinstance(record_id, str) or not record_id:
+                    raise PetLibroAPIError("Missing meal history record ID")
+                records_by_id.setdefault(record_id, record)
+            if len(page) < page_size or min(timestamps) < start_time:
+                return list(records_by_id.values())
+            oldest = min(timestamps)
+            if oldest >= cursor:
+                raise PetLibroAPIError("Meal history pagination did not advance")
+            cursor = oldest
+        raise PetLibroAPIError("Meal history exceeded the daily page limit")
+
     async def get_device_events(self, device_id: str) -> dict:
         """Fetch real-time information for a device, with caching to prevent frequent requests."""
         now = utcnow()

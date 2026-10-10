@@ -51,6 +51,7 @@ class PetLibroSensorEntityDescription(SensorEntityDescription, PetLibroEntityDes
     """A class that describes device sensor entities."""
     should_report: Callable[[_DeviceT], bool] = lambda _: True
     available_fn: Callable[[_DeviceT], bool] = lambda _: True
+    last_reset_fn: Callable[[_DeviceT], datetime | None] = lambda _: None
     petlibro_unit: API | str | None = None
 
 
@@ -78,6 +79,11 @@ class PetLibroSensorEntity(PetLibroEntity[_DeviceT], SensorEntity):
     def available(self) -> bool:
         """Require a current value for telemetry that can be absent."""
         return super().available and self.entity_description.available_fn(self.device)
+
+    @property
+    def last_reset(self) -> datetime | None:
+        """Return the reported start of an accumulating sensor's current cycle."""
+        return self.entity_description.last_reset_fn(self.device)
 
     @property
     def native_value(self) -> float | datetime | str | None:
@@ -501,6 +507,18 @@ DEVICE_SENSOR_MAP: dict[type[Device], list[PetLibroSensorEntityDescription]] = {
         )
     ],
     Granary2Feeder: [
+        PetLibroSensorEntityDescription[Granary2Feeder](
+            key="today_consumed_food_weight",
+            translation_key="today_consumed_food_weight",
+            name="Total Consumed Today",
+            icon="mdi:food",
+            device_class=SensorDeviceClass.WEIGHT,
+            native_unit_of_measurement=UnitOfMass.GRAMS,
+            suggested_unit_of_measurement=UnitOfMass.GRAMS,
+            state_class=SensorStateClass.TOTAL,
+            last_reset_fn=lambda device: device.consumption_last_reset,
+            available_fn=lambda device: device.today_consumed_food_weight is not None,
+        ),
         PetLibroSensorEntityDescription[Granary2Feeder](
             key="remaining_food_weight",
             translation_key="remaining_food_weight",

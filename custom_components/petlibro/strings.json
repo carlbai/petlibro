@@ -28,6 +28,9 @@
   },
   "entity": {
     "sensor": {
+      "today_consumed_food_weight": {
+        "name": "Total Consumed Today"
+      },
       "remaining_food_weight": {
         "name": "Food in Bowl"
       },

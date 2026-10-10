@@ -3,6 +3,7 @@
 import importlib
 import json
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -31,6 +32,8 @@ async def feeder(tmp_path):
     """Create a device with synthetic sibling-model response shapes."""
     hass = HomeAssistant(str(tmp_path))
     api = Mock(spec=PetLibroAPI)
+    api.time_zone = "America/Chicago"
+    api.get_device_meal_records.return_value = []
     for method in (
         "device_base_info", "device_attribute_settings", "get_device_upgrade",
         "get_default_matrix", "device_feeding_plan_today_new", "device_grain_status",
@@ -245,3 +248,130 @@ async def test_mode_enum_matches_localized_states(feeder):
         labels = json.loads((root / filename).read_text())["entity"]["sensor"]["feeding_mode"]["state"]
         assert set(labels) == set(description.options)
         assert all(key == key.lower() for key in labels)
+
+
+@pytest.mark.asyncio
+async def test_consumption_matches_measured_intake_without_counting_pet_copy(feeder, monkeypatch):
+    module = importlib.import_module(Granary2Feeder.__module__)
+    monkeypatch.setattr(module, "utcnow", lambda: datetime(2026, 10, 10, 12, tzinfo=timezone.utc))
+    feeder.api.get_device_meal_records.return_value = [
+        {"intake": 3, "petsInfo": [{"intake": 3}], "params": '{"intake":3}'},
+        {"intake": 2.5},
+    ]
+    await feeder.refresh()
+    description = next(d for d in DEVICE_SENSOR_MAP[Granary2Feeder] if d.key == "today_consumed_food_weight")
+    sensor = PetLibroSensorEntity(feeder, feeder.hub, description)
+    assert sensor.available and sensor.native_value == 5.5
+    assert description.native_unit_of_measurement == "g"
+    assert description.state_class == "total"
+    assert sensor.last_reset.isoformat() == "2026-10-10T00:00:00-05:00"
+    feeder.api.get_device_meal_records.assert_awaited_once_with(
+        "test-feeder", int(sensor.last_reset.timestamp() * 1000),
+        int(datetime(2026, 10, 10, 12, tzinfo=timezone.utc).timestamp() * 1000),
+    )
+    feeder.api.set_manual_feed.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", [None, True, "3", -1, float("nan"), float("inf")])
+async def test_invalid_intake_clears_total_instead_of_counting_as_zero(feeder, value):
+    feeder.api.get_device_meal_records.return_value = [{"intake": 3}]
+    await feeder.refresh()
+    assert feeder.today_consumed_food_weight == 3
+    feeder.api.get_device_meal_records.return_value = [{"intake": value}]
+    await feeder.refresh()
+    assert feeder.today_consumed_food_weight is None
+    assert feeder.consumption_last_reset is None
+    assert feeder.remaining_food_weight == 16
+
+
+@pytest.mark.asyncio
+async def test_consumption_failure_recovery_and_dst_midnight(feeder, monkeypatch):
+    module = importlib.import_module(Granary2Feeder.__module__)
+    clock = [datetime(2026, 11, 1, 6, 59, tzinfo=timezone.utc)]
+    monkeypatch.setattr(module, "utcnow", lambda: clock[0])
+    feeder.api.get_device_meal_records.return_value = [{"intake": 3}]
+    await feeder.refresh()
+    first_reset = feeder.consumption_last_reset
+    assert first_reset.isoformat() == "2026-11-01T00:00:00-05:00"
+    clock[0] = datetime(2026, 11, 1, 8, tzinfo=timezone.utc)
+    await feeder.refresh()
+    assert feeder.consumption_last_reset == first_reset
+    feeder.api.get_device_meal_records.side_effect = PetLibroAPIError("incomplete history")
+    await feeder.refresh()
+    assert feeder.today_consumed_food_weight is None
+    feeder.api.get_device_meal_records.side_effect = None
+    feeder.api.get_device_meal_records.return_value = []
+    clock[0] = datetime(2026, 11, 2, 6, 1, tzinfo=timezone.utc)
+    await feeder.refresh()
+    assert feeder.today_consumed_food_weight == 0
+    assert feeder.consumption_last_reset.isoformat() == "2026-11-02T00:00:00-06:00"
+
+
+def meal_history_api(*pages):
+    api = PetLibroAPI.__new__(PetLibroAPI)
+    api.session = SimpleNamespace(request=AsyncMock(side_effect=pages))
+    return api
+
+
+def history_page(records):
+    return [{"recordTime": "2026/10/10", "workRecords": records}]
+
+
+@pytest.mark.asyncio
+async def test_daily_history_handles_overlap_ignored_type_filter_and_date_range():
+    records = [
+        {"id": f"test-{i}", "type": "MEAL_RECORD", "recordTime": 2000 - i, "intake": 1}
+        for i in range(25)
+    ]
+    api = meal_history_api(history_page(records), history_page([
+        records[-1],
+        {"id": "online", "type": "ONLINE", "recordTime": 1900},
+        {"id": "another-meal", "type": "MEAL_RECORD", "recordTime": 1800, "intake": 3},
+        {"id": "yesterday", "type": "MEAL_RECORD", "recordTime": 900, "intake": 20},
+    ]))
+    result = await api.get_device_meal_records("test-feeder", 1000, 3000)
+    assert len(result) == 26
+    assert sum(r["intake"] for r in result) == 28
+    assert api.session.request.call_args_list[0].kwargs["json"] == {
+        "deviceSn": "test-feeder", "startTime": 1000, "endTime": 3000,
+        "size": 25, "type": ["MEAL_RECORD"],
+    }
+    assert api.session.request.call_args_list[1].kwargs["json"]["endTime"] == 1976
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("page", [[], {}])
+async def test_empty_history_is_valid_zero_meals(page):
+    assert await meal_history_api(page).get_device_meal_records("test", 1000, 3000) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("page", [
+    {"unexpected": []}, [None], [{}], history_page([None]),
+    history_page([{"type": "MEAL_RECORD", "recordTime": True}]),
+    history_page([{"type": "MEAL_RECORD", "recordTime": 2000}]),
+])
+async def test_malformed_history_cannot_silently_undercount(page):
+    with pytest.raises(PetLibroAPIError):
+        await meal_history_api(page).get_device_meal_records("test", 1000, 3000)
+
+
+@pytest.mark.asyncio
+async def test_pagination_ignoring_cursor_fails_instead_of_returning_partial_total():
+    records = [{"id": f"r{i}", "type": "MEAL_RECORD", "recordTime": 2000 - i} for i in range(25)]
+    api = meal_history_api(history_page(records), history_page(records))
+    with pytest.raises(PetLibroAPIError, match="did not advance"):
+        await api.get_device_meal_records("test", 1000, 3000)
+
+
+@pytest.mark.asyncio
+async def test_daily_history_page_limit_does_not_return_partial_total():
+    pages = [history_page([
+        {"id": f"r{p}-{i}", "type": "MEAL_RECORD", "recordTime": 2000 - p * 25 - i}
+        for i in range(25)
+    ]) for p in range(10)]
+    api = meal_history_api(*pages)
+    with pytest.raises(PetLibroAPIError, match="page limit"):
+        await api.get_device_meal_records("test", 1000, 3000)
+    assert api.session.request.await_count == 10

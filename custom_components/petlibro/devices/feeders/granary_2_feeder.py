@@ -2,8 +2,11 @@
 
 from logging import getLogger
 from math import isfinite
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import aiohttp
+from homeassistant.util.dt import utcnow
 
 from ...exceptions import PetLibroAPIError
 from .granary_smart_feeder import GranarySmartFeeder
@@ -35,6 +38,42 @@ class Granary2Feeder(GranarySmartFeeder):
                 data = {}
                 _LOGGER.warning("Unable to refresh Granary 2 %s: %s", key, err)
             self.update_data({key: data if isinstance(data, dict) else {}})
+        await self._refresh_consumption()
+
+    async def _refresh_consumption(self) -> None:
+        """Sum measured meal intake for today in the API's configured timezone."""
+        now = utcnow()
+        midnight = now.astimezone(ZoneInfo(self.api.time_zone)).replace(
+            hour=0, minute=0, second=0, microsecond=0,
+        )
+        data = {}
+        try:
+            records = await self.api.get_device_meal_records(
+                self.serial, int(midnight.timestamp() * 1000), int(now.timestamp() * 1000),
+            )
+            total = 0.0
+            for record in records:
+                intake = _numeric_value(record.get("intake"))
+                if intake is None:
+                    raise PetLibroAPIError("Missing or invalid measured meal intake")
+                # Top-level intake is already grams; petsInfo repeats that value.
+                total += intake
+            if not isfinite(total):
+                raise PetLibroAPIError("Invalid measured consumption total")
+            data = {"weight": total, "reset": midnight}
+        except (PetLibroAPIError, aiohttp.ClientError) as err:
+            _LOGGER.warning("Unable to refresh Granary 2 consumption: %s", err)
+        self.update_data({"consumptionToday": data})
+
+    @property
+    def today_consumed_food_weight(self) -> float | None:
+        """Return today's measured food intake in grams."""
+        return self._data.get("consumptionToday", {}).get("weight")
+
+    @property
+    def consumption_last_reset(self) -> datetime | None:
+        """Return the start of the day associated with a valid consumption total."""
+        return self._data.get("consumptionToday", {}).get("reset")
 
     @property
     def available(self) -> bool:
