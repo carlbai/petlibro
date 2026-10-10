@@ -531,7 +531,7 @@ DEVICE_SENSOR_MAP: dict[type[Device], list[PetLibroSensorEntityDescription]] = {
             translation_key="feeding_mode",
             name="Feeding Mode",
             device_class=SensorDeviceClass.ENUM,
-            options=["FREE", "PLAN"],
+            options=["free", "plan"],
             available_fn=lambda device: device.feeding_mode is not None,
         ),
         PetLibroSensorEntityDescription[Granary2Feeder](

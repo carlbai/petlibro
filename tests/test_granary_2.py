@@ -1,7 +1,9 @@
 """Behavior tests for the camera-free PLAF105 adapter; no cloud calls."""
 
 import importlib
+import json
 import logging
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -120,7 +122,7 @@ async def test_refresh_reads_scale_and_refill_without_camera_calls(feeder):
     assert feeder.remaining_food_weight == 16
     assert feeder.max_feedable == 3
     assert feeder.portion_to_gram_ratio == 8
-    assert feeder.feeding_mode == "PLAN"
+    assert feeder.feeding_mode == "plan"
     assert feeder.free_feeding_per_grain == 1
     assert feeder.free_feeding_daily_max == 13
     assert feeder.free_feeding_leftover_weight == 3
@@ -229,3 +231,17 @@ async def test_api_mode_payload_and_validation():
     api.session.post_serial.assert_awaited_once_with(
         "/device/device/getFreeFeedingSetting", "test-feeder",
     )
+
+
+@pytest.mark.asyncio
+async def test_mode_enum_matches_localized_states(feeder):
+    await feeder.refresh()
+    description = next(d for d in DEVICE_SENSOR_MAP[Granary2Feeder] if d.key == "feeding_mode")
+    sensor = PetLibroSensorEntity(feeder, feeder.hub, description)
+    assert sensor.native_value == "plan"
+    assert sensor.native_value in description.options
+    root = Path(__file__).resolve().parents[1] / "custom_components/petlibro"
+    for filename in ("strings.json", "translations/en.json"):
+        labels = json.loads((root / filename).read_text())["entity"]["sensor"]["feeding_mode"]["state"]
+        assert set(labels) == set(description.options)
+        assert all(key == key.lower() for key in labels)

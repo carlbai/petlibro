@@ -69,9 +69,9 @@ class Granary2Feeder(GranarySmartFeeder):
 
     @property
     def feeding_mode(self) -> str | None:
-        """Return Smart Refill (FREE) or scheduled feeding (PLAN)."""
+        """Return the feeding mode as a Home Assistant enum state."""
         value = self._data.get("dataRealInfo", {}).get("feedingMode")
-        return value if value in ("FREE", "PLAN") else None
+        return value.lower() if value in ("FREE", "PLAN") else None
 
     @property
     def free_feeding_per_grain(self) -> float | None:

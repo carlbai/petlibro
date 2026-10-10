@@ -150,8 +150,8 @@
             "feeding_mode": {
                 "name": "Feeding Mode",
                 "state": {
-                    "FREE": "Smart Refill",
-                    "PLAN": "Scheduled Feeding"
+                    "free": "Smart Refill",
+                    "plan": "Scheduled Feeding"
                 }
             },
             "free_feeding_per_grain": {
