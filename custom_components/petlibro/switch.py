@@ -17,6 +17,7 @@ from .devices import Device
 from .devices.feeders.feeder import Feeder
 from .devices.feeders.air_smart_feeder import AirSmartFeeder
 from .devices.feeders.granary_smart_feeder import GranarySmartFeeder
+from .devices.feeders.granary_2_feeder import Granary2Feeder
 from .devices.feeders.granary_smart_camera_feeder import GranarySmartCameraFeeder
 from .devices.feeders.one_rfid_smart_feeder import OneRFIDSmartFeeder
 from .devices.feeders.polar_wet_food_feeder import PolarWetFoodFeeder
@@ -42,8 +43,21 @@ class PetLibroSwitchEntityDescription(SwitchEntityDescription, PetLibroEntityDes
     """A class that describes device switch entities."""
 
     entity_category: EntityCategory = EntityCategory.CONFIG
+    available_fn: Callable[[_DeviceT], bool] = lambda _: True
 
 DEVICE_SWITCH_MAP: dict[type[Device], list[PetLibroSwitchEntityDescription]] = {
+    Granary2Feeder: [
+        PetLibroSwitchEntityDescription[Granary2Feeder](
+            key=key, translation_key=key, name=name, icon="mdi:volume-high",
+            available_fn=lambda device: device.meal_call_settings_available,
+            set_fn=lambda device, value, key=key: device.set_meal_call_setting(key, value),
+        ) for key, name in (
+            ("meal_call_enabled", "Meal Call"),
+            ("meal_call_plan", "Meal Call for Scheduled Feeding"),
+            ("meal_call_free", "Meal Call for Smart Refill"),
+            ("meal_call_manual", "Meal Call for Manual Feeding"),
+        )
+    ],
     Feeder: [
     ],
     AirSmartFeeder: [
@@ -102,12 +116,13 @@ class PetLibroSwitchEntity(PetLibroEntity[_DeviceT], SwitchEntity):
     @property
     def is_on(self) -> bool | None:
         """Return true if switch is on."""
-        return bool(getattr(self.device, self.entity_description.key))
+        value = getattr(self.device, self.entity_description.key)
+        return None if value is None else bool(value)
 
     @property
     def available(self) -> bool:
         """Check if the device is available."""
-        return getattr(self.device, 'online', False)
+        return super().available and getattr(self.device, 'online', False) and self.entity_description.available_fn(self.device)
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the switch on."""

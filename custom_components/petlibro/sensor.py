@@ -9,7 +9,7 @@ from homeassistant.components.sensor.const import SensorStateClass, SensorDevice
 from homeassistant.components.sensor import SensorEntity, SensorEntityDescription
 from homeassistant.const import Platform, UnitOfMass, UnitOfVolume, UnitOfTime, SIGNAL_STRENGTH_DECIBELS_MILLIWATT, PERCENTAGE
 from homeassistant.core import HomeAssistant
-from homeassistant.util.unit_conversion import VolumeConverter
+from homeassistant.util.unit_conversion import VolumeConverter, MassConverter
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.config_entries import ConfigEntry  # Added ConfigEntry import
 from .hub import PetLibroHub  # Adjust the import path as necessary
@@ -78,7 +78,18 @@ class PetLibroSensorEntity(PetLibroEntity[_DeviceT], SensorEntity):
     @property
     def available(self) -> bool:
         """Require a current value for telemetry that can be absent."""
+        if isinstance(self.device, Granary2Feeder):
+            if self.key == "child_lock_switch" and self.device.child_lock_switch is None:
+                return False
+            if self.key in ("today_feeding_quantity_weight", "last_feed_quantity_weight", "next_feed_quantity_weight") and self.device.feeding_weight(1) is None:
+                return False
         return super().available and self.entity_description.available_fn(self.device)
+
+    @property
+    def entity_registry_enabled_default(self) -> bool:
+        if isinstance(self.device, Granary2Feeder) and self.key == "child_lock_switch":
+            return self.device.child_lock_switch is not None
+        return super().entity_registry_enabled_default
 
     @property
     def last_reset(self) -> datetime | None:
@@ -111,6 +122,8 @@ class PetLibroSensorEntity(PetLibroEntity[_DeviceT], SensorEntity):
                 "last_feed_quantity_weight",
                 "next_feed_quantity_weight"
             ):
+                if isinstance(self.device, Granary2Feeder):
+                    return self.device.feeding_weight(getattr(self.device, key.removesuffix("_weight"), 0))
                 return Unit.convert_feed(
                     getattr(self.device, key.removesuffix("_weight"), 0) * self.device.feed_conv_factor, 
                     None, Unit.GRAMS, True)
@@ -234,6 +247,12 @@ class PetLibroSensorEntity(PetLibroEntity[_DeviceT], SensorEntity):
                 "next_feed_quantity_weight",
             ):
                 portion = getattr(self.device, key.removesuffix("_weight"), 0)
+                if isinstance(self.device, Granary2Feeder):
+                    grams = self.device.feeding_weight(portion)
+                    return {} if grams is None else {
+                        "g": grams,
+                        "oz": round(MassConverter.convert(grams, UnitOfMass.GRAMS, UnitOfMass.OUNCES), 2),
+                    }
                 return {
                     unit.symbol: Unit.convert_feed(portion * self.device.feed_conv_factor, None, unit, True)
                     for unit in (Unit.GRAMS, Unit.OUNCES)
@@ -507,6 +526,30 @@ DEVICE_SENSOR_MAP: dict[type[Device], list[PetLibroSensorEntityDescription]] = {
         )
     ],
     Granary2Feeder: [
+        PetLibroSensorEntityDescription[Granary2Feeder](
+            key="today_meal_count", translation_key="today_meal_count", name="Meals Today",
+            icon="mdi:counter", state_class=SensorStateClass.TOTAL,
+            last_reset_fn=lambda device: device.consumption_last_reset,
+            available_fn=lambda device: device.today_meal_count is not None,
+        ),
+        PetLibroSensorEntityDescription[Granary2Feeder](
+            key="today_meal_duration", translation_key="today_meal_duration", name="Eating Duration Today",
+            device_class=SensorDeviceClass.DURATION, native_unit_of_measurement=UnitOfTime.SECONDS,
+            state_class=SensorStateClass.TOTAL,
+            last_reset_fn=lambda device: device.consumption_last_reset,
+            available_fn=lambda device: device.today_meal_duration is not None,
+        ),
+        PetLibroSensorEntityDescription[Granary2Feeder](
+            key="last_meal_time", translation_key="last_meal_time", name="Last Meal Time",
+            device_class=SensorDeviceClass.TIMESTAMP,
+            available_fn=lambda device: device.last_meal_time is not None,
+        ),
+        PetLibroSensorEntityDescription[Granary2Feeder](
+            key="auto_feed_max_weight", translation_key="auto_feed_max_weight", name="Maximum Bowl Weight",
+            device_class=SensorDeviceClass.WEIGHT, native_unit_of_measurement=UnitOfMass.GRAMS,
+            suggested_unit_of_measurement=UnitOfMass.GRAMS, state_class=SensorStateClass.MEASUREMENT,
+            available_fn=lambda device: device.auto_feed_max_weight is not None,
+        ),
         PetLibroSensorEntityDescription[Granary2Feeder](
             key="today_consumed_food_weight",
             translation_key="today_consumed_food_weight",

@@ -27,6 +27,7 @@ from .devices.device import Device
 from .devices.feeders.feeder import Feeder
 from .devices.feeders.air_smart_feeder import AirSmartFeeder
 from .devices.feeders.granary_smart_feeder import GranarySmartFeeder
+from .devices.feeders.granary_2_feeder import Granary2Feeder
 from .devices.feeders.granary_smart_camera_feeder import GranarySmartCameraFeeder
 from .devices.feeders.one_rfid_smart_feeder import OneRFIDSmartFeeder
 from .devices.feeders.polar_wet_food_feeder import PolarWetFoodFeeder
@@ -55,6 +56,18 @@ class PetLibroBinarySensorEntity(PetLibroEntity[_DeviceT], BinarySensorEntity):
 
     entity_description: PetLibroBinarySensorEntityDescription[_DeviceT]
 
+    @property
+    def available(self) -> bool:
+        if isinstance(self.device, Granary2Feeder) and self.key in ("left_food_low", "right_food_low", "auto_stop_feed_enabled"):
+            return super().available and getattr(self.device, self.key) is not None
+        return super().available
+
+    @property
+    def entity_registry_enabled_default(self) -> bool:
+        if isinstance(self.device, Granary2Feeder) and self.key in ("left_food_low", "right_food_low"):
+            return False
+        return super().entity_registry_enabled_default
+
     @cached_property
     def device_class(self) -> BinarySensorDeviceClass | None:
         """Return the device class to use in the frontend, if any."""
@@ -63,6 +76,8 @@ class PetLibroBinarySensorEntity(PetLibroEntity[_DeviceT], BinarySensorEntity):
     @property
     def is_on(self) -> bool:
         """Return True if the binary sensor is on."""
+        if isinstance(self.device, Granary2Feeder) and self.key == "auto_stop_feed_enabled":
+            return bool(self.device.auto_stop_feed_enabled)
         if not self.entity_description.should_report(self.device):
             return False
 
@@ -123,7 +138,7 @@ class PetLibroBinarySensorEntity(PetLibroEntity[_DeviceT], BinarySensorEntity):
                         "label": plan.get("label", ""),
                         "time": plan.get("executionTime"),
                         **{
-                            f"amount_{unit.symbol.lower()}": Unit.convert_feed(plan.get("grainNum", 0) * conv, None, unit, True)
+                            f"amount_{unit.symbol.lower()}": (self.device.feeding_amount(plan.get("grainNum", 0), unit) if isinstance(self.device, Granary2Feeder) else Unit.convert_feed(plan.get("grainNum", 0) * conv, None, unit, True))
                             for unit in VALID_UNIT_TYPES[API.FEED_UNIT] if unit
                         },
                         "amount_raw": plan.get("grainNum", 0),
@@ -146,7 +161,7 @@ class PetLibroBinarySensorEntity(PetLibroEntity[_DeviceT], BinarySensorEntity):
                         "label": "",
                         "time": tp.get("time"),
                         **{
-                            f"amount_{unit.symbol.lower()}": Unit.convert_feed(tp.get("grainNum", 0) * conv, None, unit, True)
+                            f"amount_{unit.symbol.lower()}": (self.device.feeding_amount(tp.get("grainNum", 0), unit) if isinstance(self.device, Granary2Feeder) else Unit.convert_feed(tp.get("grainNum", 0) * conv, None, unit, True))
                             for unit in VALID_UNIT_TYPES[API.FEED_UNIT] if unit
                         },
                         "amount_raw": tp.get("grainNum", 0),
@@ -164,6 +179,13 @@ class PetLibroBinarySensorEntity(PetLibroEntity[_DeviceT], BinarySensorEntity):
 
 
 DEVICE_BINARY_SENSOR_MAP: dict[type[Device], list[PetLibroBinarySensorEntityDescription]] = {
+    Granary2Feeder: [
+        PetLibroBinarySensorEntityDescription[Granary2Feeder](
+            key="auto_stop_feed_enabled", translation_key="auto_stop_feed_enabled",
+            name="Automatic Feed Stop", icon="mdi:pause-circle-outline",
+            should_report=lambda device: device.auto_stop_feed_enabled is not None,
+        ),
+    ],
     Feeder: [
     ],
     AirSmartFeeder: [

@@ -454,7 +454,7 @@ class PetLibroAPI:
             _LOGGER.error(f"Error fetching workRecord for device {device_id}: {e}")
             raise PetLibroAPIError(f"Error fetching workRecord for device {device_id}: {e}")
 
-    async def get_device_meal_records(self, device_id: str, start_time: int, end_time: int) -> list[dict]:
+    async def get_device_meal_records(self, device_id: str, start_time: int, end_time: int, *, latest_only: bool = False) -> list[dict]:
         """Read a complete time window, overlapping pages to deduplicate meals.
 
         The service can return other event types despite the requested filter.
@@ -495,6 +495,8 @@ class PetLibroAPI:
                 if not isinstance(record_id, str) or not record_id:
                     raise PetLibroAPIError("Missing meal history record ID")
                 records_by_id.setdefault(record_id, record)
+            if latest_only and records_by_id:
+                return [max(records_by_id.values(), key=lambda record: record["recordTime"])]
             if len(page) < page_size or min(timestamps) < start_time:
                 return list(records_by_id.values())
             oldest = min(timestamps)
@@ -628,6 +630,36 @@ class PetLibroAPI:
     async def device_get_free_feeding_setting(self, serial: str) -> Dict[str, Any]:
         """Fetch Granary 2 Smart Refill settings."""
         return await self.session.post_serial("/device/device/getFreeFeedingSetting", serial)
+
+    async def update_free_feeding_setting(self, serial: str, portions: int, daily_max: int) -> None:
+        """Update the app's paired Smart Refill portion settings."""
+        for value, maximum in ((portions, 10), (daily_max, 100)):
+            if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= maximum:
+                raise ValueError("Invalid Smart Refill portion setting")
+        await self.session.post("/device/device/updateFreeFeedingSetting", json={
+            "deviceSn": serial, "freePerGrainNum": portions, "freeDailyMaxNum": daily_max,
+        })
+
+    async def update_free_feeding_threshold(self, serial: str, grams: int) -> None:
+        """Set the app's leftover-food threshold, in grams."""
+        if isinstance(grams, bool) or not isinstance(grams, int) or not 3 <= grams <= 10:
+            raise ValueError("Smart Refill food threshold must be 3–10 g")
+        await self.session.post("/device/device/updateFreeFeedingParamSetting", json={
+            "deviceSn": serial, "freeLeftoverWeight": grams,
+        })
+
+    async def update_meal_call_setting(self, serial: str, enabled: bool, times: int, apply: list[str]) -> None:
+        """Update meal-call settings without changing the recording itself."""
+        if not isinstance(enabled, bool):
+            raise ValueError("Meal Call enabled must be a boolean")
+        if isinstance(times, bool) or not isinstance(times, int) or not 1 <= times <= 5:
+            raise ValueError("Meal Call repetitions must be 1–5")
+        if not isinstance(apply, list) or any(mode not in ("PLAN", "FREE", "MANUAL") for mode in apply):
+            raise ValueError("Invalid Meal Call feeding modes")
+        await self.session.post("/device/setting/updateMealCallSetting", json={
+            "deviceSn": serial, "mealCallSwitch": enabled,
+            "mealCallTimes": times, "mealCallApply": list(dict.fromkeys(apply)),
+        })
 
     async def set_feeding_mode(self, serial: str, mode: str) -> None:
         """Select Smart Refill or scheduled feeding on a Granary 2."""

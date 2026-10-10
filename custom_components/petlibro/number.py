@@ -11,7 +11,7 @@ from homeassistant.components.number import (
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.restore_state import RestoreEntity
-from homeassistant.const import UnitOfVolume, Platform
+from homeassistant.const import UnitOfVolume, UnitOfMass, Platform, EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.config_entries import ConfigEntry  # Added ConfigEntry import
 from homeassistant.util.unit_conversion import VolumeConverter
@@ -21,6 +21,7 @@ from .devices import Device
 from .devices.feeders.feeder import Feeder
 from .devices.feeders.air_smart_feeder import AirSmartFeeder
 from .devices.feeders.granary_smart_feeder import GranarySmartFeeder
+from .devices.feeders.granary_2_feeder import Granary2Feeder
 from .devices.feeders.granary_smart_camera_feeder import GranarySmartCameraFeeder
 from .devices.feeders.one_rfid_smart_feeder import OneRFIDSmartFeeder
 from .devices.feeders.polar_wet_food_feeder import PolarWetFoodFeeder
@@ -31,6 +32,7 @@ from .devices.fountains.dockstream_2_smart_cordless_fountain import Dockstream2S
 from .devices.fountains.dockstream_2_smart_fountain import Dockstream2SmartFountain
 from .devices.litterboxes.luma_smart_litter_box import LumaSmartLitterBox
 from .entity import PetLibroEntity, _DeviceT, PetLibroEntityDescription
+from .exceptions import PetLibroAPIError
 from .pets.entity import PL_PetNumberEntity
 
 
@@ -42,6 +44,7 @@ class PetLibroNumberEntityDescription(NumberEntityDescription, PetLibroEntityDes
     value_fn: Callable[[_DeviceT], float] = lambda _: 0
     method: Callable[[_DeviceT, float], float] = lambda d, v: None
     petlibro_unit: APIKey | str | None = None
+    available_fn: Callable[[_DeviceT], bool] = lambda _: True
 
 class PetLibroNumberEntity(PetLibroEntity[_DeviceT], RestoreEntity, NumberEntity):
     """PETLIBRO number entity."""
@@ -64,23 +67,37 @@ class PetLibroNumberEntity(PetLibroEntity[_DeviceT], RestoreEntity, NumberEntity
             try:
                 restored_value = float(last_state.state)
                 if not self.portions_enabled:
-                    restored_value = Unit.convert_feed(
-                        restored_value, self.member.feedUnitType, None)
-                    restored_value = restored_value / self.device.feed_conv_factor
+                    if isinstance(self.device, Granary2Feeder):
+                        restored_value = self._portions_from_amount(restored_value)
+                    else:
+                        restored_value = Unit.convert_feed(restored_value, self.member.feedUnitType, None) / self.device.feed_conv_factor
                 restored_value = max(1, min(round(restored_value), self.device.max_feed_portions))
                 self.device.manual_feed_quantity = restored_value
-            except (TypeError, ValueError) as err:
+            except (TypeError, ValueError, PetLibroAPIError) as err:
                 _LOGGER.warning("Failed to restore manual_feed_quantity: %s", err)
+
+    def _feeding_amount(self, portions: float) -> float | None:
+        if isinstance(self.device, Granary2Feeder):
+            return self.device.feeding_amount(portions, self.member.feedUnitType)
+        return Unit.convert_feed(portions * self.device.feed_conv_factor, None, self.member.feedUnitType, True)
+
+    def _portions_from_amount(self, value: float) -> int:
+        if isinstance(self.device, Granary2Feeder):
+            return self.device.portions_from_amount(value, self.member.feedUnitType)
+        return round(Unit.convert_feed(value / self.device.feed_conv_factor, self.member.feedUnitType, None))
+
+    def _feeding_step(self) -> float:
+        if isinstance(self.device, Granary2Feeder) and self.member.feedUnitType in (Unit.GRAMS, Unit.OUNCES):
+            if (amount := self._feeding_amount(1)) is not None:
+                return amount
+        return self.member.feedUnitType.factor * self.device.feed_conv_factor
 
     @property
     def native_value(self) -> float | None:
         """Return the current state."""
         match self.key:
             case "manual_feed_quantity": 
-                return Unit.convert_feed(
-                    self.device.manual_feed_quantity * self.device.feed_conv_factor, 
-                    None, self.member.feedUnitType, True
-                ) if not self.portions_enabled else self.device.manual_feed_quantity
+                return self._feeding_amount(self.device.manual_feed_quantity) if not self.portions_enabled else self.device.manual_feed_quantity
             case "water_low_threshold":
                 return Unit.round(
                     VolumeConverter.convert(self.device.water_low_threshold, UnitOfVolume.MILLILITERS, 
@@ -99,13 +116,19 @@ class PetLibroNumberEntity(PetLibroEntity[_DeviceT], RestoreEntity, NumberEntity
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the value of the number."""
+        if isinstance(self.device, Granary2Feeder) and self.key in (
+            "free_feeding_per_grain", "free_feeding_daily_max", "free_feeding_leftover_weight", "meal_call_times",
+        ):
+            # Settings failures must reach the service caller, not look successful.
+            await self.entity_description.method(self.device, value)
+            self.async_write_ha_state()
+            return
         _LOGGER.debug(f"Setting value {value} for {self.device.name}")
         
         try:
             match self.key:
                 case "manual_feed_quantity":
-                    await self.device.set_manual_feed_quantity(round(Unit.convert_feed(
-                        value / self.device.feed_conv_factor, self.member.feedUnitType, None)) 
+                    await self.device.set_manual_feed_quantity(self._portions_from_amount(value)
                         if not self.portions_enabled else round(value))
                 case "water_low_threshold":
                     await self.device.set_water_low_threshold(round(VolumeConverter.convert(
@@ -125,7 +148,7 @@ class PetLibroNumberEntity(PetLibroEntity[_DeviceT], RestoreEntity, NumberEntity
         """Return the native unit of measurement."""
         match self.key:
             case "manual_feed_quantity": 
-                return self.member.feedUnitType.symbol if not self.portions_enabled else "portions",
+                return self.member.feedUnitType.symbol if not self.portions_enabled else "portions"
             case "water_low_threshold": 
                 return self.member.waterUnitType.symbol
         return super().native_unit_of_measurement
@@ -135,7 +158,7 @@ class PetLibroNumberEntity(PetLibroEntity[_DeviceT], RestoreEntity, NumberEntity
         """Return the minimum value."""
         match self.key:
             case "manual_feed_quantity":
-                return (self.member.feedUnitType.factor * self.device.feed_conv_factor
+                return (self._feeding_step()
                     if not self.portions_enabled else 1)
             case "water_low_threshold": 
                 return Unit.round(self.member.waterUnitType.factor * 650, self.member.waterUnitType)
@@ -147,8 +170,7 @@ class PetLibroNumberEntity(PetLibroEntity[_DeviceT], RestoreEntity, NumberEntity
         match self.key:
             case "manual_feed_quantity":
                 return (
-                    Unit.round((self.member.feedUnitType.factor * self.device.feed_conv_factor)
-                        * self.device.max_feed_portions, self.member.feedUnitType,)
+                    (self._feeding_amount(self.device.max_feed_portions) or self._feeding_step() * self.device.max_feed_portions)
                     if not self.portions_enabled else self.device.max_feed_portions)
             case "water_low_threshold":
                 return Unit.round(self.member.waterUnitType.factor * 3000, self.member.waterUnitType)
@@ -159,7 +181,7 @@ class PetLibroNumberEntity(PetLibroEntity[_DeviceT], RestoreEntity, NumberEntity
         """Return the increment/decrement step."""
         match self.key:
             case "manual_feed_quantity":
-                return (self.member.feedUnitType.factor * self.device.feed_conv_factor
+                return (self._feeding_step()
                     if not self.portions_enabled else 1)
             case "water_low_threshold":
                 return Unit.round(self.member.waterUnitType.factor, self.member.waterUnitType)
@@ -169,8 +191,12 @@ class PetLibroNumberEntity(PetLibroEntity[_DeviceT], RestoreEntity, NumberEntity
     def available(self) -> bool:
         """Return True if entity is available."""
         if self.key == "manual_feed_quantity": 
-            return self.enable_for_manual_feed
-        return super().available
+            return self.enable_for_manual_feed and (
+                self.portions_enabled or not isinstance(self.device, Granary2Feeder)
+                or self.member.feedUnitType not in (Unit.GRAMS, Unit.OUNCES)
+                or self.device.feeding_weight(1) is not None
+            )
+        return super().available and self.entity_description.available_fn(self.device)
 
     @property
     def entity_registry_visible_default(self) -> bool:
@@ -214,6 +240,30 @@ class PetLibroNumberEntity(PetLibroEntity[_DeviceT], RestoreEntity, NumberEntity
 
 DEVICE_NUMBER_MAP: dict[type[Device], list[PetLibroNumberEntityDescription]] = {
     Feeder: [],
+    Granary2Feeder: [
+        PetLibroNumberEntityDescription[Granary2Feeder](
+            key=key, translation_key=key, name=name, icon="mdi:autorenew",
+            entity_category=EntityCategory.CONFIG, mode=NumberMode.BOX,
+            native_min_value=minimum, native_max_value=maximum, native_step=1,
+            native_unit_of_measurement=unit,
+            value_fn=lambda device, key=key: getattr(device, key),
+            available_fn=lambda device, key=key: getattr(device, key) is not None,
+            method=lambda device, value, key=key: device.set_free_feeding_setting(key, value),
+        ) for key, name, minimum, maximum, unit in (
+            ("free_feeding_per_grain", "Smart Refill Portions per Feed", 1, 10, "portions"),
+            ("free_feeding_daily_max", "Smart Refill Daily Portion Limit", 1, 100, "portions"),
+            ("free_feeding_leftover_weight", "Smart Refill Food Threshold", 3, 10, UnitOfMass.GRAMS),
+        )
+    ] + [
+        PetLibroNumberEntityDescription[Granary2Feeder](
+            key="meal_call_times", translation_key="meal_call_times", name="Meal Call Repetitions",
+            icon="mdi:volume-high", entity_category=EntityCategory.CONFIG, mode=NumberMode.BOX,
+            native_min_value=1, native_max_value=5, native_step=1,
+            value_fn=lambda device: device.meal_call_times,
+            available_fn=lambda device: device.meal_call_settings_available,
+            method=lambda device, value: device.set_meal_call_setting("meal_call_times", value),
+        ),
+    ],
     AirSmartFeeder: [
         PetLibroNumberEntityDescription[AirSmartFeeder](
             key="manual_feed_quantity",
