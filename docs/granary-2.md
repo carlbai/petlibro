@@ -61,6 +61,10 @@ They have **not yet been verified on a live PLAF105**. The tests use synthetic
 responses based on those documented fields, without contacting a feeder or
 dispensing food.
 
+CI runs the device tests, Hassfest, and HACS validation. On forks, it skips HACS's
+repository topics and issue-tracker checks, which are publication metadata for
+the default directory. The integration structure checks remain enabled.
+
 If additional entities are unavailable, enable debug logging from the integration's
 menu in Settings → Devices & Services, reload the integration, and inspect the
 responses for `/data/data/realInfo` and `/device/device/getFreeFeedingSetting`.

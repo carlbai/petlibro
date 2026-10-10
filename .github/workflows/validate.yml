@@ -52,3 +52,5 @@ jobs:
         uses: hacs/action@main
         with:
           category: integration
+          # Personal forks are not submissions to the HACS default directory.
+          ignore: ${{ github.event.repository.fork && 'topics issues' || '' }}
