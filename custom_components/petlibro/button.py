@@ -25,6 +25,7 @@ from .devices.device import Device
 from .devices.feeders.feeder import Feeder
 from .devices.feeders.air_smart_feeder import AirSmartFeeder
 from .devices.feeders.granary_smart_feeder import GranarySmartFeeder
+from .devices.feeders.granary_2_feeder import Granary2Feeder
 from .devices.feeders.granary_smart_camera_feeder import GranarySmartCameraFeeder
 from .devices.feeders.one_rfid_smart_feeder import OneRFIDSmartFeeder
 from .devices.feeders.polar_wet_food_feeder import PolarWetFoodFeeder
@@ -253,6 +254,22 @@ DEVICE_BUTTON_MAP: dict[type[Device], list[PetLibroButtonEntityDescription]] = {
             icon="mdi:calendar-remove",
             name="Disable Today's Feeding Schedule",
             set_fn=lambda d: d.api.feeding_plan_today_all(d.serial, False),
+        ),
+    ],
+    Granary2Feeder: [
+        PetLibroButtonEntityDescription[Granary2Feeder](
+            key="free_feeding_mode",
+            translation_key="free_feeding_mode",
+            name="Enable Smart Refill",
+            icon="mdi:autorenew",
+            set_fn=lambda device: device.api.set_feeding_mode(device.serial, "FREE"),
+        ),
+        PetLibroButtonEntityDescription[Granary2Feeder](
+            key="plan_feeding_mode",
+            translation_key="plan_feeding_mode",
+            name="Enable Scheduled Feeding",
+            icon="mdi:calendar-clock",
+            set_fn=lambda device: device.api.set_feeding_mode(device.serial, "PLAN"),
         ),
     ],
     GranarySmartCameraFeeder: [

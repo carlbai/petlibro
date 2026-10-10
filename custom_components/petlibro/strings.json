@@ -25,5 +25,45 @@
       "already_configured": "[%key:common::config_flow::abort::already_configured_device%]",
       "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]"
     }
+  },
+  "entity": {
+    "sensor": {
+      "remaining_food_weight": {
+        "name": "Food in Bowl"
+      },
+      "max_feedable": {
+        "name": "Feedable Portions"
+      },
+      "portion_to_gram_ratio": {
+        "name": "Grams per Portion"
+      },
+      "feeding_mode": {
+        "name": "Feeding Mode",
+        "state": {
+          "FREE": "Smart Refill",
+          "PLAN": "Scheduled Feeding"
+        }
+      },
+      "free_feeding_per_grain": {
+        "name": "Smart Refill Portions per Feed"
+      },
+      "free_feeding_daily_max": {
+        "name": "Smart Refill Daily Portion Limit"
+      },
+      "free_feeding_leftover_weight": {
+        "name": "Smart Refill Food Threshold"
+      },
+      "free_feeding_wait_seconds": {
+        "name": "Smart Refill Wait Time"
+      }
+    },
+    "button": {
+      "free_feeding_mode": {
+        "name": "Enable Smart Refill"
+      },
+      "plan_feeding_mode": {
+        "name": "Enable Scheduled Feeding"
+      }
+    }
   }
 }

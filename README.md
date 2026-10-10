@@ -2,6 +2,9 @@
 
 ---
 # PETLIBRO integration for Home Assistant
+This fork adds experimental support for the **Granary 2 (PLAF105, no camera)**.
+See the [device notes and installation instructions](docs/granary-2.md).
+
 [![version][versionbadge]][versionlink] [![release][releasebadge]][releaselink] [![community][communitybadge]][communitylink] [![hainstall][hainstallbadge]][hainstall] [![starsbadge][starsbadge]][stars] [![hacs_badge][hacsbadge]][hacs]
 
 ## Supporting the development
@@ -32,6 +35,7 @@ If you enjoy this integration and want to support its development, please consid
 
 ### Feeders
 * Granary Smart Feeder (PLAF103) | Version 2
+* Granary 2 (PLAF105, no camera) | Experimental; see [device notes](docs/granary-2.md)
 * Space Smart Feeder (PLAF107)
 * Air Smart Feeder (PLAF108)
 * Polar Wet Food Feeder (PLAF109)

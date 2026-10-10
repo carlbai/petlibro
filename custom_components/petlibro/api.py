@@ -576,6 +576,19 @@ class PetLibroAPI:
     async def device_wet_feeding_plan(self, serial: str) -> Dict[str, Any]:
         return await self.session.post_serial("/device/wetFeedingPlan/wetListV3", serial)
 
+    async def device_get_free_feeding_setting(self, serial: str) -> Dict[str, Any]:
+        """Fetch Granary 2 Smart Refill settings."""
+        return await self.session.post_serial("/device/device/getFreeFeedingSetting", serial)
+
+    async def set_feeding_mode(self, serial: str, mode: str) -> None:
+        """Select Smart Refill or scheduled feeding on a Granary 2."""
+        if mode not in ("FREE", "PLAN"):
+            raise ValueError(f"Unsupported feeding mode: {mode}")
+        await self.session.post("/device/device/updateFeedingMode", json={
+            "deviceSn": serial,
+            "mode": mode,
+        })
+
     async def device_get_bound_pets(self, device_sn: str) -> list[dict]:
         """Get pets bound to a device."""
         _LOGGER.debug("Requesting pets bound to device sn: %s", device_sn)

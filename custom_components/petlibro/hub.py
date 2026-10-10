@@ -15,7 +15,7 @@ from homeassistant.helpers.device_registry import async_get as async_get_device_
 from homeassistant.util.dt import utcnow
 from .api import PetLibroAPI  # Use a relative import if inside the same package
 from .const import CONF_EMAIL, CONF_PASSWORD, IntegrationSetting
-from .devices import Device, product_name_map
+from .devices import Device, get_device_class
 from .member import Member
 from .pets import Pet
 from .helpers import set_missing_config_options
@@ -117,9 +117,9 @@ class PetLibroHub:
                     device_data.update({"boundPets": bound_pets})
 
                 # Create a new device and add it without calling refresh immediately
-                if device_name in product_name_map:
+                if device_class := get_device_class(device_data):
                     _LOGGER.debug(f"Loading new device: {device_name} (Serial: {device_sn})")
-                    device = product_name_map[device_name](device_data, self)
+                    device = device_class(device_data, self)
                     self.devices[device_sn] = device # Add to device dict
                     _LOGGER.debug(f"Successfully loaded device: {device_name} (Serial: {device_sn})")
                 else:

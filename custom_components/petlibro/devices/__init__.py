@@ -6,6 +6,7 @@ from .device import Device
 from .feeders.feeder import Feeder
 from .feeders.air_smart_feeder import AirSmartFeeder
 from .feeders.granary_smart_feeder import GranarySmartFeeder
+from .feeders.granary_2_feeder import Granary2Feeder
 from .feeders.granary_smart_camera_feeder import GranarySmartCameraFeeder
 from .feeders.one_rfid_smart_feeder import OneRFIDSmartFeeder
 from .feeders.polar_wet_food_feeder import PolarWetFoodFeeder
@@ -20,6 +21,7 @@ from .litterboxes.luma_smart_litter_box import LumaSmartLitterBox
 product_name_map : Dict[str, Type[Device]] = {
     "Air Smart Feeder": AirSmartFeeder,
     "Granary Smart Feeder": GranarySmartFeeder,
+    "Granary 2": Granary2Feeder,
     "Granary Smart Camera Feeder": GranarySmartCameraFeeder,
     "One RFID Smart Feeder": OneRFIDSmartFeeder,
     "Polar Wet Food Feeder": PolarWetFoodFeeder,
@@ -30,3 +32,17 @@ product_name_map : Dict[str, Type[Device]] = {
     "Space Smart Feeder": SpaceSmartFeeder,
     "Luma Smart Litter Box": LumaSmartLitterBox
 }
+
+# Prefer the hardware identifier when the cloud's display name varies by locale.
+product_identifier_map: Dict[str, Type[Device]] = {
+    "PLAF105": Granary2Feeder,
+}
+
+
+def get_device_class(data: dict) -> Type[Device] | None:
+    """Resolve supported hardware before falling back to legacy product names."""
+    identifier = data.get("productIdentifier")
+    if isinstance(identifier, str):
+        if device_class := product_identifier_map.get(identifier.strip().upper()):
+            return device_class
+    return product_name_map.get(data.get("productName"))

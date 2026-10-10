@@ -70,6 +70,7 @@ List all devices on the account.
 **Known productName values:**
 - `"Air Smart Feeder"` → `AirSmartFeeder`
 - `"Granary Smart Feeder"` → `GranarySmartFeeder`
+- `"Granary 2"` → `Granary2Feeder` (camera-free PLAF105; also matched by hardware identifier)
 - `"Granary Smart Camera Feeder"` → `GranarySmartCameraFeeder`
 - `"One RFID Smart Feeder"` → `OneRFIDSmartFeeder`
 - `"Polar Wet Food Feeder"` → `PolarWetFoodFeeder`
@@ -293,6 +294,24 @@ Stop manual feeding. Closes the lid.
 Rotate food bowl to next plate.
 
 **Request:** `{"deviceSn": "<sn>"}`
+
+## Granary 2 (PLAF105, experimental)
+
+The camera-free Granary 2 reuses the existing feeder endpoints and adds
+`/data/data/realInfo` for `remainingGrain` (grams), `maxFeedable` (portions),
+`portionToGramRatio` (g/portion), and `feedingMode` (`FREE` or `PLAN`).
+
+`POST /device/device/getFreeFeedingSetting` uses the standard serial body and
+returns `freePerGrainNum` and `freeDailyMaxNum` (portions),
+`freeLeftoverWeight` (grams), and `freeWaitSeconds` (seconds).
+
+`POST /device/device/updateFeedingMode` takes
+`{"deviceSn": "<sn>", "mode": "FREE"}` or `"PLAN"`. Settings alone do not indicate
+the current feeding mode; read it from `/data/data/realInfo`.
+
+These contracts are based on the sibling PLAF205 capture in
+[PR #274](https://github.com/jjjonesjr33/petlibro/pull/274) and await live PLAF105
+verification. See [Granary 2 notes](granary-2.md).
 
 ## Water / Fountain Endpoints
 

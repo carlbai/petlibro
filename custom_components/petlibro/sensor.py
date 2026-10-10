@@ -19,6 +19,7 @@ from .devices import Device
 from .devices.feeders.feeder import Feeder
 from .devices.feeders.air_smart_feeder import AirSmartFeeder
 from .devices.feeders.granary_smart_feeder import GranarySmartFeeder
+from .devices.feeders.granary_2_feeder import Granary2Feeder
 from .devices.feeders.granary_smart_camera_feeder import GranarySmartCameraFeeder
 from .devices.feeders.one_rfid_smart_feeder import OneRFIDSmartFeeder
 from .devices.feeders.polar_wet_food_feeder import PolarWetFoodFeeder
@@ -49,6 +50,7 @@ def icon_for_gauge_level(gauge_level: int | None = None, offset: int = 0) -> str
 class PetLibroSensorEntityDescription(SensorEntityDescription, PetLibroEntityDescription[_DeviceT]):
     """A class that describes device sensor entities."""
     should_report: Callable[[_DeviceT], bool] = lambda _: True
+    available_fn: Callable[[_DeviceT], bool] = lambda _: True
     petlibro_unit: API | str | None = None
 
 
@@ -71,6 +73,11 @@ class PetLibroSensorEntity(PetLibroEntity[_DeviceT], SensorEntity):
             self.hub.unit_entities.unique_ids[unit_type][Platform.SENSOR][device_class].append(self._attr_unique_id)
         
         self._last_sensor_state = {}
+
+    @property
+    def available(self) -> bool:
+        """Require a current value for telemetry that can be absent."""
+        return super().available and self.entity_description.available_fn(self.device)
 
     @property
     def native_value(self) -> float | datetime | str | None:
@@ -492,6 +499,75 @@ DEVICE_SENSOR_MAP: dict[type[Device], list[PetLibroSensorEntityDescription]] = {
             icon="mdi:lock",
             name="Buttons Lock"
         )
+    ],
+    Granary2Feeder: [
+        PetLibroSensorEntityDescription[Granary2Feeder](
+            key="remaining_food_weight",
+            translation_key="remaining_food_weight",
+            name="Food in Bowl",
+            device_class=SensorDeviceClass.WEIGHT,
+            native_unit_of_measurement=UnitOfMass.GRAMS,
+            state_class=SensorStateClass.MEASUREMENT,
+            available_fn=lambda device: device.remaining_food_weight is not None,
+        ),
+        PetLibroSensorEntityDescription[Granary2Feeder](
+            key="max_feedable",
+            translation_key="max_feedable",
+            name="Feedable Portions",
+            native_unit_of_measurement="portions",
+            state_class=SensorStateClass.MEASUREMENT,
+            available_fn=lambda device: device.max_feedable is not None,
+        ),
+        PetLibroSensorEntityDescription[Granary2Feeder](
+            key="portion_to_gram_ratio",
+            translation_key="portion_to_gram_ratio",
+            name="Grams per Portion",
+            native_unit_of_measurement="g/portion",
+            state_class=SensorStateClass.MEASUREMENT,
+            available_fn=lambda device: device.portion_to_gram_ratio is not None,
+        ),
+        PetLibroSensorEntityDescription[Granary2Feeder](
+            key="feeding_mode",
+            translation_key="feeding_mode",
+            name="Feeding Mode",
+            device_class=SensorDeviceClass.ENUM,
+            options=["FREE", "PLAN"],
+            available_fn=lambda device: device.feeding_mode is not None,
+        ),
+        PetLibroSensorEntityDescription[Granary2Feeder](
+            key="free_feeding_per_grain",
+            translation_key="free_feeding_per_grain",
+            name="Smart Refill Portions per Feed",
+            native_unit_of_measurement="portions",
+            state_class=SensorStateClass.MEASUREMENT,
+            available_fn=lambda device: device.free_feeding_per_grain is not None,
+        ),
+        PetLibroSensorEntityDescription[Granary2Feeder](
+            key="free_feeding_daily_max",
+            translation_key="free_feeding_daily_max",
+            name="Smart Refill Daily Portion Limit",
+            native_unit_of_measurement="portions",
+            state_class=SensorStateClass.MEASUREMENT,
+            available_fn=lambda device: device.free_feeding_daily_max is not None,
+        ),
+        PetLibroSensorEntityDescription[Granary2Feeder](
+            key="free_feeding_leftover_weight",
+            translation_key="free_feeding_leftover_weight",
+            name="Smart Refill Food Threshold",
+            device_class=SensorDeviceClass.WEIGHT,
+            native_unit_of_measurement=UnitOfMass.GRAMS,
+            state_class=SensorStateClass.MEASUREMENT,
+            available_fn=lambda device: device.free_feeding_leftover_weight is not None,
+        ),
+        PetLibroSensorEntityDescription[Granary2Feeder](
+            key="free_feeding_wait_seconds",
+            translation_key="free_feeding_wait_seconds",
+            name="Smart Refill Wait Time",
+            device_class=SensorDeviceClass.DURATION,
+            native_unit_of_measurement=UnitOfTime.SECONDS,
+            state_class=SensorStateClass.MEASUREMENT,
+            available_fn=lambda device: device.free_feeding_wait_seconds is not None,
+        ),
     ],
     GranarySmartCameraFeeder: [
         PetLibroSensorEntityDescription[GranarySmartCameraFeeder](
